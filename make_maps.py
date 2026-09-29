@@ -22,6 +22,7 @@ WHITE = (255, 255, 255)
 ROUTE = (37, 99, 235)
 ALLEY = (249, 115, 22)
 YELLOW = (250, 204, 21)
+DARK = (17, 24, 39)
 
 ROUTES = [
     {
@@ -50,7 +51,7 @@ ROUTES = [
         "src": "images/route2.webp",
         "out": "maps/경로2.png",
         "title": "삼원가구 상차 경로 ②",
-        "sub": "남서쪽에서 큰길 따라 북쪽으로 → 하천변 도로 따라 동쪽으로 → 송선로 따라 북쪽 · 약 2분",
+        "sub": "큰길 따라 북쪽 → ① 동교천 다리 건너 바로 오른쪽 다리옆길 → 하천변 따라 동쪽 → ② 왼쪽 골목 · 약 2분",
         "erase": [(376, 262, 412, 304), (322, 357, 390, 393),
                   (88, 504, 124, 556), (360, 106, 398, 152)],
         "path": [(106, 549), (201, 334), (230, 336), (260, 345), (290, 356), (320, 350),
@@ -61,7 +62,17 @@ ROUTES = [
         "end_label_side": "left",
         "turn": 9,
         "turn_box": (None, 750),
+        "turn_title": "② 여기서 골목 진입!",
         "turn_text": "하천변 도로 끝에서 왼쪽 골목으로 크게 꺾기",
+        # 큰길에서 동교천 다리를 건너자마자 오른쪽 다리옆길로 빠지는 지점
+        "notes": [{
+            "at": 1, "box": (16, 470),
+            "lines": [("① 다리 건너자마자 우회전!", 32, DARK),
+                      ("동교천 다리를 건너면 바로 오른쪽", 22, DARK),
+                      ("다리옆 하천변 길로 진입", 22, DARK)],
+        }],
+        # 다리 위치 표시 (원본 좌표, 라벨 좌상단)
+        "tags": [((110, 350), "동교천 다리")],
     },
 ]
 
@@ -163,6 +174,19 @@ def draw_route(draw, pts, color=ROUTE, width=16):
         acc = (acc + seg) % gap
 
 
+def draw_turn_note(draw, t, box, lines, img_w):
+    bw, bh = box_size(draw, lines)
+    bx, by = box
+    if bx is None:
+        bx = img_w - bw - 16
+    near = (min(max(t[0], bx), bx + bw), min(max(t[1], by), by + bh))
+    draw.line([t, near], fill=DARK, width=9)
+    draw.line([t, near], fill=YELLOW, width=5)
+    for r, c in ((40, DARK), (36, YELLOW), (26, DARK), (22, YELLOW)):
+        draw.ellipse((t[0] - r, t[1] - r, t[0] + r, t[1] + r), outline=c, width=5)
+    draw_box(draw, (bx, by), DARK, lines, fill=YELLOW)
+
+
 def build(cfg):
     bgr = cv2.imread(cfg["src"])
     rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
@@ -191,22 +215,19 @@ def build(cfg):
     ti = cfg["turn"]
     draw_route(d, pts[:ti + 1])
     draw_route(d, pts[ti:], ALLEY, 20)   # 골목 구간은 주황색으로 굵게
-    s, e, t = pts[0], pts[-1], pts[ti]
+    s, e = pts[0], pts[-1]
 
-    # 골목 진입 지점: 노란 동그라미 + 안내 박스 + 연결선
-    lines = [("여기서 골목 진입!", 32, (17, 24, 39)),
-             (cfg["turn_text"], 22, (17, 24, 39)),
-             ("주황색 길 따라 쭉 가면 도착", 22, (154, 52, 18))]
-    bw, bh = box_size(d, lines)
-    bx, by = cfg["turn_box"]
-    if bx is None:
-        bx = W - bw - 16
-    near = (min(max(t[0], bx), bx + bw), min(max(t[1], by), by + bh))
-    d.line([t, near], fill=(17, 24, 39), width=9)
-    d.line([t, near], fill=YELLOW, width=5)
-    for r, c in ((40, (17, 24, 39)), (36, YELLOW), (26, (17, 24, 39)), (22, YELLOW)):
-        d.ellipse((t[0] - r, t[1] - r, t[0] + r, t[1] + r), outline=c, width=5)
-    draw_box(d, (bx, by), (17, 24, 39), lines, fill=YELLOW)
+    # 꺾는 지점마다 노란 동그라미 + 안내 박스 + 연결선
+    notes = cfg.get("notes", []) + [{
+        "at": ti, "box": cfg["turn_box"],
+        "lines": [(cfg.get("turn_title", "여기서 골목 진입!"), 32, DARK),
+                  (cfg["turn_text"], 22, DARK),
+                  ("주황색 길 따라 쭉 가면 도착", 22, (154, 52, 18))],
+    }]
+    for n in notes:
+        draw_turn_note(d, pts[n["at"]], n["box"], n["lines"], W)
+    for (x, y), label in cfg.get("tags", []):
+        draw_box(d, (x * SCALE, y * SCALE), DARK, [(label, 20, DARK)], pad=8)
     draw_callout(d, s, cfg["start_label_side"], GREEN,
                  [("출발", 30, GREEN), ("여기서 진입하세요", 22, NAVY)], W, H)
     draw_callout(d, e, cfg["end_label_side"], RED,
