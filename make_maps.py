@@ -54,6 +54,8 @@ ROUTES = [
                         ("오른쪽 다리옆 하천변 길로 진입", 22, NAVY)],
         "tags": [((772, 572), "동교천 다리")],
         # 삼원가구 실제 위치(주소 지점)와 라벨 위치
+        # samwon_location.png 를 이 지도에 겹칠 때의 위치 (템플릿 매칭으로 구함)
+        "patch_offset": (-54, -91),
         "shop": (117, 51),
         "shop_tag": (140, 22),
     },
@@ -83,6 +85,7 @@ ROUTES = [
         }],
         # 다리 위치 표시 (원본 좌표, 라벨 좌상단)
         "tags": [((110, 350), "동교천 다리")],
+        "patch_offset": (178, -118),
         "shop": (350, 25),
         "shop_tag": (214, 30),
     },
@@ -199,6 +202,44 @@ def draw_turn_note(draw, t, box, lines, img_w):
     draw_box(draw, (bx, by), DARK, lines, fill=YELLOW)
 
 
+PATCH_SRC = "images/samwon_location.png"
+# 깨끗한 캡처에서 빼야 할 마커 영역 (핀+주소 라벨, 경유 마커)
+PATCH_SKIP = [(138, 92, 218, 175), (198, 372, 238, 418)]
+
+
+def fill_from_clean_capture(bgr, mask, wide, offset):
+    """지워야 할 영역 중 경로선이 없는 캡처와 겹치는 부분은 그 사진으로 채운다.
+
+    채운 픽셀은 mask 에서 빼서 inpaint 로 뭉개지지 않게 한다.
+    """
+    src = cv2.imread(PATCH_SRC)
+    ok = np.full(src.shape[:2], 255, np.uint8)
+    for x0, y0, x1, y1 in PATCH_SKIP:
+        ok[y0:y1, x0:x1] = 0
+    ok = cv2.erode(ok, np.ones((5, 5), np.uint8))  # 캡처 가장자리 1~2px 제외
+    ok[:3, :] = ok[-3:, :] = 0
+    ok[:, :3] = ok[:, -3:] = 0
+    dx, dy = offset
+    H, W = mask.shape
+    sh, sw = src.shape[:2]
+    x0, y0 = max(0, dx), max(0, dy)
+    x1, y1 = min(W, dx + sw), min(H, dy + sh)
+    m = mask[y0:y1, x0:x1]
+    mw = wide[y0:y1, x0:x1]
+    okc = ok[y0 - dy:y1 - dy, x0 - dx:x1 - dx] > 0
+    dst = bgr[y0:y1, x0:x1]
+    patch = src[y0 - dy:y1 - dy, x0 - dx:x1 - dx].astype(float)
+    # 캡처가 더 밝고 대비가 달라서, 겹치는 깨끗한 영역으로 채널별 밝기를 맞춘다
+    ref = (mw == 0) & okc
+    for ch in range(3):
+        gain, bias = np.polyfit(patch[..., ch][ref], dst[..., ch][ref].astype(float), 1)
+        patch[..., ch] = patch[..., ch] * gain + bias
+    patch = patch.clip(0, 255).astype(np.uint8)
+    sel = (mw > 0) & okc
+    dst[sel] = patch[sel]
+    m[sel] = 0
+
+
 def build(cfg):
     bgr = cv2.imread(cfg["src"])
     rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
@@ -209,6 +250,11 @@ def build(cfg):
     mask = cv2.dilate(route, np.ones((7, 7), np.uint8))
     for x0, y0, x1, y1 in cfg["erase"]:
         mask[y0:y1, x0:x1] = 255
+    # 캡처로 덮는 부분은 원래 경로선 테두리까지 넉넉하게 덮는다
+    r_, g_, b_ = [rgb[..., i].astype(int) for i in range(3)]
+    edge = ((b_ > 65) & (b_ - r_ > 45) & (b_ - g_ > 30)).astype(np.uint8) * 255   # 경로선의 짙은 파란 테두리
+    wide = cv2.dilate(route | edge, np.ones((13, 13), np.uint8)) | mask
+    fill_from_clean_capture(bgr, mask, wide, cfg["patch_offset"])
     bgr = cv2.inpaint(bgr, mask, 7, cv2.INPAINT_TELEA)
     rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
 
