@@ -29,7 +29,7 @@ ROUTES = [
         "src": "images/route1.webp",
         "out": "maps/경로1.png",
         "title": "삼원가구 상차 경로 ①",
-        "sub": "동쪽 큰길에서 진입 → 하천변 도로 따라 서쪽으로 → 송선로 따라 북쪽 · 약 2분",
+        "sub": "큰길 따라 남쪽 → ① 동교천 다리 건너기 직전 오른쪽 다리옆길 → 하천변 따라 서쪽 → ② 오른쪽 골목 · 약 2분",
         # 지울 영역: (x0, y0, x1, y1, 경로선 보존 여부)
         # 지울 영역 (x0, y0, x1, y1): 경유 마커, 소요시간 말풍선, 기존 핀
         "erase": [(600, 500, 636, 556), (402, 380, 466, 416),
@@ -45,7 +45,16 @@ ROUTES = [
         # 골목으로 꺾는 지점 (path 인덱스)과 안내 박스 위치(확대 좌표 기준 좌상단)
         "turn": 20,
         "turn_box": (24, 800),
+        "turn_title": "② 여기서 골목 진입!",
         "turn_text": "하천변 도로 끝에서 오른쪽 골목으로",
+        # 큰길에서 동교천 다리 건너기 직전 오른쪽 다리옆길로 빠지는 지점 = 출발
+        "start_lines": [("출발 · ① 다리 앞 우회전!", 30, GREEN),
+                        ("큰길에서 동교천 다리 건너기 직전", 22, NAVY),
+                        ("오른쪽 다리옆 하천변 길로 진입", 22, NAVY)],
+        "tags": [((772, 572), "동교천 다리")],
+        # 삼원가구 실제 위치(주소 지점)와 라벨 위치
+        "shop": (146, 175),
+        "shop_tag": (22, 196),
     },
     {
         "src": "images/route2.webp",
@@ -73,6 +82,8 @@ ROUTES = [
         }],
         # 다리 위치 표시 (원본 좌표, 라벨 좌상단)
         "tags": [((110, 350), "동교천 다리")],
+        "shop": (378, 146),
+        "shop_tag": (262, 150),
     },
 ]
 
@@ -229,11 +240,24 @@ def build(cfg):
     for (x, y), label in cfg.get("tags", []):
         draw_box(d, (x * SCALE, y * SCALE), DARK, [(label, 20, DARK)], pad=8)
     draw_callout(d, s, cfg["start_label_side"], GREEN,
-                 [("출발", 30, GREEN), ("여기서 진입하세요", 22, NAVY)], W, H)
+                 cfg.get("start_lines", [("출발", 30, GREEN), ("여기서 진입하세요", 22, NAVY)]), W, H)
     draw_callout(d, e, cfg["end_label_side"], RED,
                  [("도착 · 삼원가구 상차", 30, RED), (ADDRESS, 22, NAVY), (JIBUN, 18, (71, 85, 105))], W, H)
     draw_pin(d, s, GREEN, "출발")
     draw_pin(d, e, RED, "도착")
+
+    # 삼원가구 실제 위치 (주소 지점)
+    shop = (cfg["shop"][0] * SCALE, cfg["shop"][1] * SCALE)
+    tag = (cfg["shop_tag"][0] * SCALE, cfg["shop_tag"][1] * SCALE)
+    lines = [("삼원가구 위치", 22, RED), ("송선로 150-34", 18, NAVY)]
+    bw, bh = box_size(d, lines, pad=8)
+    near = (min(max(shop[0], tag[0]), tag[0] + bw), min(max(shop[1], tag[1]), tag[1] + bh))
+    d.line([shop, near], fill=WHITE, width=7)
+    d.line([shop, near], fill=RED, width=3)
+    draw_box(d, tag, RED, lines, pad=8)
+    d.rectangle((shop[0] - 15, shop[1] - 15, shop[0] + 15, shop[1] + 15), fill=WHITE)
+    d.rectangle((shop[0] - 11, shop[1] - 11, shop[0] + 11, shop[1] + 11), fill=RED)
+    d.rectangle((shop[0] - 4, shop[1] - 4, shop[0] + 4, shop[1] + 4), fill=WHITE)
     img = Image.alpha_composite(img, layer)
 
     # 4) 상단 제목 띠
