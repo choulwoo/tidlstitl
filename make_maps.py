@@ -156,8 +156,8 @@ def build(cfg):
     bgr = cv2.inpaint(bgr, mask, 7, cv2.INPAINT_TELEA)
     rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
 
-    # 2) 배경을 살짝 어둡게 해서 경로·표시가 잘 보이게
-    out = (rgb.astype(float) * 0.68).clip(0, 255).astype(np.uint8)
+    # 2) 위성사진이 어두운 편이라 조금 밝게
+    out = (rgb.astype(float) * 1.12 + 8).clip(0, 255).astype(np.uint8)
 
     # 3) 확대 후 경로/핀/설명 그리기
     img = Image.fromarray(out)
