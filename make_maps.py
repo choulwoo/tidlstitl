@@ -20,6 +20,8 @@ RED = (220, 38, 38)
 NAVY = (15, 23, 42)
 WHITE = (255, 255, 255)
 ROUTE = (37, 99, 235)
+ALLEY = (249, 115, 22)
+YELLOW = (250, 204, 21)
 
 ROUTES = [
     {
@@ -39,6 +41,10 @@ ROUTES = [
                  (158, 290), (154, 265), (162, 245), (170, 215), (172, 190), (166, 170)],
         "start_label_side": "left",
         "end_label_side": "right",
+        # 골목으로 꺾는 지점 (path 인덱스)과 안내 박스 위치(확대 좌표 기준 좌상단)
+        "turn": 20,
+        "turn_box": (24, 800),
+        "turn_text": "하천변 도로 끝에서 오른쪽 골목으로",
     },
     {
         "src": "images/route2.webp",
@@ -53,6 +59,9 @@ ROUTES = [
                  (400, 150), (396, 142)],
         "start_label_side": "right",
         "end_label_side": "left",
+        "turn": 9,
+        "turn_box": (None, 750),
+        "turn_text": "하천변 도로 끝에서 왼쪽 골목으로 크게 꺾기",
     },
 ]
 
@@ -95,10 +104,7 @@ def draw_pin(draw, tip, color, label):
 
 def draw_callout(draw, tip, side, color, lines, img_w, img_h):
     """핀 옆에 설명 박스를 그린다. lines: [(text, size, color)]"""
-    pad = 14
-    widths = [draw.textlength(t, font=font(s)) + s // 11 * 2 for t, s, _ in lines]
-    heights = [s + 8 for _, s, _ in lines]
-    bw, bh = max(widths) + pad * 2, sum(heights) + pad * 2 - 8
+    bw, bh = box_size(draw, lines)
     x, y = tip
     cy = y - 78
     if side == "right":
@@ -108,22 +114,36 @@ def draw_callout(draw, tip, side, color, lines, img_w, img_h):
     y0 = cy - bh / 2
     x0 = min(max(x0, 12), img_w - bw - 12)
     y0 = min(max(y0, 12), img_h - bh - 12)
+    draw_box(draw, (x0, y0), color, lines)
+
+
+def box_size(draw, lines, pad=14):
+    widths = [draw.textlength(t, font=font(s)) + s // 11 * 2 for t, s, _ in lines]
+    heights = [s + 8 for _, s, _ in lines]
+    return max(widths) + pad * 2, sum(heights) + pad * 2 - 8
+
+
+def draw_box(draw, xy, color, lines, fill=WHITE, pad=14):
+    x0, y0 = xy
+    bw, bh = box_size(draw, lines, pad)
     draw.rounded_rectangle((x0 + 4, y0 + 5, x0 + bw + 4, y0 + bh + 5), 14, fill=(0, 0, 0, 110))
-    draw.rounded_rectangle((x0, y0, x0 + bw, y0 + bh), 14, fill=WHITE, outline=color, width=5)
+    draw.rounded_rectangle((x0, y0, x0 + bw, y0 + bh), 14, fill=fill, outline=color, width=5)
     ty = y0 + pad
-    for (t, s, c), h in zip(lines, heights):
+    for t, s, c in lines:
         text_bold(draw, (x0 + pad, ty), t, s, c)
-        ty += h
+        ty += s + 8
+    return bw, bh
 
 
-def draw_route(draw, pts):
-    """흰 테두리가 있는 파란 경로선과 진행 방향 화살표를 그린다."""
-    draw.line(pts, fill=WHITE, width=26, joint="curve")
+def draw_route(draw, pts, color=ROUTE, width=16):
+    """흰 테두리가 있는 경로선과 진행 방향 화살표를 그린다."""
+    o = width + 10
+    draw.line(pts, fill=WHITE, width=o, joint="curve")
     for p in (pts[0], pts[-1]):
-        draw.ellipse((p[0] - 13, p[1] - 13, p[0] + 13, p[1] + 13), fill=WHITE)
-    draw.line(pts, fill=ROUTE, width=16, joint="curve")
+        draw.ellipse((p[0] - o / 2, p[1] - o / 2, p[0] + o / 2, p[1] + o / 2), fill=WHITE)
+    draw.line(pts, fill=color, width=width, joint="curve")
     for p in (pts[0], pts[-1]):
-        draw.ellipse((p[0] - 8, p[1] - 8, p[0] + 8, p[1] + 8), fill=ROUTE)
+        draw.ellipse((p[0] - width / 2, p[1] - width / 2, p[0] + width / 2, p[1] + width / 2), fill=color)
     # 일정 간격마다 진행 방향 화살표
     gap, acc = 70, 35.0
     for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
@@ -168,8 +188,25 @@ def build(cfg):
     d = ImageDraw.Draw(layer)
 
     pts = [(x * SCALE, y * SCALE) for x, y in cfg["path"]]
-    draw_route(d, pts)
-    s, e = pts[0], pts[-1]
+    ti = cfg["turn"]
+    draw_route(d, pts[:ti + 1])
+    draw_route(d, pts[ti:], ALLEY, 20)   # 골목 구간은 주황색으로 굵게
+    s, e, t = pts[0], pts[-1], pts[ti]
+
+    # 골목 진입 지점: 노란 동그라미 + 안내 박스 + 연결선
+    lines = [("여기서 골목 진입!", 32, (17, 24, 39)),
+             (cfg["turn_text"], 22, (17, 24, 39)),
+             ("주황색 길 따라 쭉 가면 도착", 22, (154, 52, 18))]
+    bw, bh = box_size(d, lines)
+    bx, by = cfg["turn_box"]
+    if bx is None:
+        bx = W - bw - 16
+    near = (min(max(t[0], bx), bx + bw), min(max(t[1], by), by + bh))
+    d.line([t, near], fill=(17, 24, 39), width=9)
+    d.line([t, near], fill=YELLOW, width=5)
+    for r, c in ((40, (17, 24, 39)), (36, YELLOW), (26, (17, 24, 39)), (22, YELLOW)):
+        d.ellipse((t[0] - r, t[1] - r, t[0] + r, t[1] + r), outline=c, width=5)
+    draw_box(d, (bx, by), (17, 24, 39), lines, fill=YELLOW)
     draw_callout(d, s, cfg["start_label_side"], GREEN,
                  [("출발", 30, GREEN), ("여기서 진입하세요", 22, NAVY)], W, H)
     draw_callout(d, e, cfg["end_label_side"], RED,
@@ -179,12 +216,18 @@ def build(cfg):
     img = Image.alpha_composite(img, layer)
 
     # 4) 상단 제목 띠
-    head_h = 118
+    head_h = 156
     canvas = Image.new("RGBA", (W, H + head_h), NAVY + (255,))
     canvas.paste(img, (0, head_h))
     d = ImageDraw.Draw(canvas)
     text_bold(d, (24, 20), cfg["title"], 38, WHITE)
     d.text((26, 74), cfg["sub"], font=font(21), fill=(203, 213, 225))
+    lx, ly = 26, 122
+    for color, label in ((ROUTE, "큰길"), (ALLEY, "골목 (여기로 들어가야 함)")):
+        d.line([(lx, ly), (lx + 44, ly)], fill=WHITE, width=16)
+        d.line([(lx + 2, ly), (lx + 42, ly)], fill=color, width=10)
+        text_bold(d, (lx + 56, ly), label, 21, WHITE, anchor="lm")
+        lx += 56 + d.textlength(label, font=font(21)) + 36
     canvas.convert("RGB").save(cfg["out"], optimize=True)
     print("saved", cfg["out"], canvas.size)
 
