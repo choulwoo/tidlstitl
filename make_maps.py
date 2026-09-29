@@ -23,6 +23,7 @@ NAVY = (15, 23, 42)
 WHITE = (255, 255, 255)
 ROUTE = (37, 99, 235)
 ALLEY = (249, 115, 22)
+BIG_ROAD = (124, 58, 237)
 YELLOW = (250, 204, 21)
 DARK = (17, 24, 39)
 
@@ -31,7 +32,7 @@ ROUTES = [
         "src": "images/route1.webp",
         "out": "maps/경로1.png",
         "title": "삼원가구 상차 경로 ①",
-        "sub": "큰길 따라 남쪽 → ① 동교천 다리 건너기 직전 오른쪽 다리옆길 → 하천변 따라 서쪽 → ② 오른쪽 골목 · 약 2분",
+        "sub": "큰길 따라 남쪽 → ① 동교천 다리 건너기 직전 오른쪽 뚝방길 → 뚝방길 따라 서쪽 → ② 오른쪽 골목 · 약 2분",
         # 지울 영역: (x0, y0, x1, y1, 경로선 보존 여부)
         # 지울 영역 (x0, y0, x1, y1): 경유 마커, 소요시간 말풍선, 기존 핀
         "erase": [(600, 500, 636, 556), (402, 380, 466, 416),
@@ -48,11 +49,11 @@ ROUTES = [
         "turn": 20,
         "turn_box": (24, 800),
         "turn_title": "② 여기서 골목 진입!",
-        "turn_text": "하천변 도로 끝에서 오른쪽 골목으로",
-        # 큰길에서 동교천 다리 건너기 직전 오른쪽 다리옆길로 빠지는 지점 = 출발
+        "turn_text": "뚝방길 끝에서 오른쪽 골목으로",
+        # 큰길에서 동교천 다리 건너기 직전 오른쪽 다리옆 뚝방길로 빠지는 지점 = 출발
         "start_lines": [("출발 · ① 다리 앞 우회전!", 30, GREEN),
                         ("큰길에서 동교천 다리 건너기 직전", 22, NAVY),
-                        ("오른쪽 다리옆 하천변 길로 진입", 22, NAVY)],
+                        ("오른쪽 다리옆 뚝방길로 진입", 22, NAVY)],
         "tags": [((772, 572), "동교천 다리")],
         # 삼원가구 실제 위치(주소 지점)와 라벨 위치
         # samwon_location.png 를 이 지도에 겹칠 때의 위치 (템플릿 매칭으로 구함)
@@ -64,7 +65,7 @@ ROUTES = [
         "src": "images/route2.webp",
         "out": "maps/경로2.png",
         "title": "삼원가구 상차 경로 ②",
-        "sub": "큰길 따라 북쪽 → ① 동교천 다리 건너 바로 오른쪽 다리옆길 → 하천변 따라 동쪽 → ② 왼쪽 골목 · 약 2분",
+        "sub": "큰길 따라 북쪽 → ① 동교천 다리 건너 바로 오른쪽 뚝방길 → 뚝방길 따라 동쪽 → ② 왼쪽 골목 · 약 2분",
         "erase": [(376, 262, 412, 304), (322, 357, 390, 393),
                   (88, 504, 124, 556), (360, 106, 398, 152)],
         "path": [(106, 549), (201, 334), (230, 336), (260, 345), (290, 356), (320, 350),
@@ -73,16 +74,17 @@ ROUTES = [
                  (400, 150), (396, 142)],
         "start_label_side": "right",
         "end_label_side": "left",
+        "big_road": 1,   # path[0..1] 출발~다리는 큰길
         "turn": 9,
         "turn_box": (None, 750),
         "turn_title": "② 여기서 골목 진입!",
-        "turn_text": "하천변 도로 끝에서 왼쪽 골목으로 크게 꺾기",
-        # 큰길에서 동교천 다리를 건너자마자 오른쪽 다리옆길로 빠지는 지점
+        "turn_text": "뚝방길 끝에서 왼쪽 골목으로 크게 꺾기",
+        # 큰길에서 동교천 다리를 건너자마자 오른쪽 다리옆 뚝방길로 빠지는 지점
         "notes": [{
             "at": 1, "box": (16, 470),
             "lines": [("① 다리 건너자마자 우회전!", 32, DARK),
                       ("동교천 다리를 건너면 바로 오른쪽", 22, DARK),
-                      ("다리옆 하천변 길로 진입", 22, DARK)],
+                      ("다리옆 뚝방길로 진입", 22, DARK)],
         }],
         # 다리 위치 표시 (원본 좌표, 라벨 좌상단)
         "tags": [((110, 350), "동교천 다리")],
@@ -272,7 +274,10 @@ def build(cfg):
 
     pts = [(x * SCALE, y * SCALE) for x, y in cfg["path"]]
     ti = cfg["turn"]
-    draw_route(d, pts[:ti + 1])
+    bi = cfg.get("big_road", 0)
+    if bi:
+        draw_route(d, pts[:bi + 1], BIG_ROAD)
+    draw_route(d, pts[bi:ti + 1])        # 뚝방길은 파란색
     draw_route(d, pts[ti:], ALLEY, 20)   # 골목 구간은 주황색으로 굵게
     s, e = pts[0], pts[-1]
 
@@ -317,7 +322,10 @@ def build(cfg):
     text_bold(d, (24, 20), cfg["title"], 38, WHITE)
     d.text((26, 74), cfg["sub"], font=font(21), fill=(203, 213, 225))
     lx, ly = 26, 122
-    for color, label in ((ROUTE, "큰길"), (ALLEY, "골목 (여기로 들어가야 함)")):
+    legend = [(ROUTE, "뚝방길"), (ALLEY, "골목 (여기로 들어가야 함)")]
+    if cfg.get("big_road"):
+        legend.insert(0, (BIG_ROAD, "큰길"))
+    for color, label in legend:
         d.line([(lx, ly), (lx + 44, ly)], fill=WHITE, width=16)
         d.line([(lx + 2, ly), (lx + 42, ly)], fill=color, width=10)
         text_bold(d, (lx + 56, ly), label, 21, WHITE, anchor="lm")
