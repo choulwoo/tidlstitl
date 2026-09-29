@@ -14,6 +14,7 @@ FONT = "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc"
 ADDRESS = "경기도 포천시 송선로 150-34"
 JIBUN = "(지번) 설운동 190-1"
 SHOP_ADDRESS = "송선로 150-8"
+TURN_ADDRESS = "송선로 120-5 앞"   # 골목으로 꺾는 지점 (images/alley_turn_120-5.png)
 SCALE = 2
 
 GREEN = (22, 163, 74)
@@ -279,6 +280,7 @@ def build(cfg):
     notes = cfg.get("notes", []) + [{
         "at": ti, "box": cfg["turn_box"],
         "lines": [(cfg.get("turn_title", "여기서 골목 진입!"), 32, DARK),
+                  (TURN_ADDRESS, 24, (185, 28, 28)),
                   (cfg["turn_text"], 22, DARK),
                   ("주황색 길 따라 쭉 가면 도착", 22, (154, 52, 18))],
     }]
