@@ -243,7 +243,8 @@ def fill_from_clean_capture(bgr, mask, wide, offset):
     m[sel] = 0
 
 
-def build(cfg):
+def clean_base(cfg):
+    """경로선·마커를 지우고 밝기를 조정한 배경과, 주변색으로 메운(inpaint) 영역 마스크를 돌려준다."""
     bgr = cv2.imread(cfg["src"])
     rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
 
@@ -263,6 +264,11 @@ def build(cfg):
 
     # 2) 위성사진이 어두운 편이라 조금 밝게
     out = (rgb.astype(float) * 1.12 + 8).clip(0, 255).astype(np.uint8)
+    return out, mask > 0
+
+
+def build(cfg):
+    out, _ = clean_base(cfg)
 
     # 3) 확대 후 경로/핀/설명 그리기
     img = Image.fromarray(out)
@@ -334,6 +340,131 @@ def build(cfg):
     print("saved", cfg["out"], canvas.size)
 
 
+# 두 지도를 합칠 때: 경로2 지도 좌표계 기준으로 경로1 지도는 (232, -27) 만큼 떨어져 있다
+# (둘 다 samwon_location.png 에 템플릿 매칭한 위치의 차이)
+R1_SHIFT = (232, -27)
+COMBINED_W, COMBINED_H = 232 + 897, 674
+
+
+def mosaic():
+    b1, m1 = clean_base(ROUTES[0])
+    b2, m2 = clean_base(ROUTES[1])
+    W, H = COMBINED_W, COMBINED_H
+    dx, dy = R1_SHIFT
+    canvas = [np.zeros((H, W, 3)), np.zeros((H, W, 3))]
+    weight = [np.zeros((H, W)), np.zeros((H, W))]
+    xs = np.arange(W)[None, :].repeat(H, 0)
+
+    # 경로2 지도: (0,0) 부터
+    h2, w2 = b2.shape[:2]
+    canvas[1][:h2, :w2] = b2
+    weight[1][:h2, :w2] = np.where(m2, 0.02, 1.0)
+    # 경로1 지도: (232, -27) 부터
+    h1, w1 = b1.shape[:2]
+    y0 = -dy
+    rows = min(H, h1 - y0)
+    canvas[0][:rows, dx:dx + w1] = b1[y0:y0 + rows]
+    weight[0][:rows, dx:dx + w1] = np.where(m1[y0:y0 + rows], 0.02, 1.0)
+
+    # 겹치는 부분에서 경로1 지도 밝기를 경로2 지도에 맞춘다
+    both = (weight[0] == 1) & (weight[1] == 1)
+    for ch in range(3):
+        g, b = np.polyfit(canvas[0][..., ch][both], canvas[1][..., ch][both], 1)
+        canvas[0][..., ch] = canvas[0][..., ch] * g + b
+    # 이음새가 안 보이게 겹치는 구간에서 서서히 섞는다
+    weight[0] *= np.clip((xs - dx) / 80.0, 0, 1)
+    weight[1] *= np.clip((w2 - xs) / 80.0, 0, 1)
+    total = weight[0] + weight[1] + 1e-6
+    out = (canvas[0] * weight[0][..., None] + canvas[1] * weight[1][..., None]) / total[..., None]
+    return out.clip(0, 255).astype(np.uint8)
+
+
+def draw_shop(d, shop, tag):
+    shop = (shop[0] * SCALE, shop[1] * SCALE)
+    tag = (tag[0] * SCALE, tag[1] * SCALE)
+    lines = [("삼원가구", 22, RED), (SHOP_ADDRESS, 18, NAVY)]
+    bw, bh = box_size(d, lines, pad=8)
+    near = (min(max(shop[0], tag[0]), tag[0] + bw), min(max(shop[1], tag[1]), tag[1] + bh))
+    d.line([shop, near], fill=WHITE, width=7)
+    d.line([shop, near], fill=RED, width=3)
+    draw_box(d, tag, RED, lines, pad=8)
+    d.rectangle((shop[0] - 15, shop[1] - 15, shop[0] + 15, shop[1] + 15), fill=WHITE)
+    d.rectangle((shop[0] - 11, shop[1] - 11, shop[0] + 11, shop[1] + 11), fill=RED)
+    d.rectangle((shop[0] - 4, shop[1] - 4, shop[0] + 4, shop[1] + 4), fill=WHITE)
+
+
+def build_combined(out_path="maps/경로_통합.png"):
+    """경로 ①, ② 를 한 장의 지도에 함께 그린다."""
+    base = mosaic()
+    img = Image.fromarray(base)
+    img = img.resize((img.width * SCALE, img.height * SCALE), Image.LANCZOS).convert("RGBA")
+    W, H = img.size
+    layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    d = ImageDraw.Draw(layer)
+
+    sc = lambda p: (p[0] * SCALE, p[1] * SCALE)
+    p1 = [sc((x + R1_SHIFT[0], y + R1_SHIFT[1])) for x, y in ROUTES[0]["path"]]
+    p2 = [sc(p) for p in ROUTES[1]["path"]]
+    t1, t2 = ROUTES[0]["turn"], ROUTES[1]["turn"]
+
+    draw_route(d, p2[:2], BIG_ROAD)       # 경로② 출발~다리 큰길
+    draw_route(d, p2[1:t2 + 1])           # 경로② 뚝방길 (서쪽)
+    draw_route(d, p1[:t1 + 1])            # 경로① 뚝방길 (동쪽)
+    draw_route(d, p2[t2:], ALLEY, 20)     # 공통 골목
+
+    # 골목 진입 (두 경로 공통)
+    draw_turn_note(d, p2[t2], (700, 780), [
+        ("여기서 골목 진입!", 34, DARK),
+        (TURN_ADDRESS, 24, (185, 28, 28)),
+        ("경로① (동쪽에서 올 때): 뚝방길 끝에서 오른쪽 골목", 22, DARK),
+        ("경로② (서쪽에서 올 때): 뚝방길 끝에서 왼쪽으로 크게 꺾기", 22, DARK),
+        ("주황색 길 따라 쭉 가면 도착", 22, (154, 52, 18)),
+    ], W)
+    # 경로② 다리 건너 우회전
+    draw_turn_note(d, p2[1], (16, 470), [
+        ("경로② 다리 건너자마자 우회전!", 30, DARK),
+        ("동교천 다리를 건너면 바로 오른쪽", 22, DARK),
+        ("다리옆 뚝방길로 진입", 22, DARK),
+    ], W)
+    tags = [((110, 350), "동교천 다리"),
+            ((772 + R1_SHIFT[0], 572 + R1_SHIFT[1]), "동교천 다리")]
+    for (x, y), label in tags:
+        draw_box(d, sc((x, y)), DARK, [(label, 20, DARK)], pad=8)
+
+    draw_callout(d, p1[0], "left", GREEN, [
+        ("경로① 출발 · 다리 앞 우회전!", 30, GREEN),
+        ("큰길 남쪽 방향, 동교천 다리 건너기 직전", 22, NAVY),
+        ("오른쪽 다리옆 뚝방길로 진입", 22, NAVY)], W, H)
+    draw_callout(d, p2[0], "right", GREEN, [
+        ("경로② 출발", 30, GREEN), ("큰길 따라 북쪽으로", 22, NAVY)], W, H)
+    draw_callout(d, p2[-1], "left", RED, [
+        ("도착 · 상차 장소", 30, RED), (ADDRESS, 22, NAVY), (JIBUN, 18, (71, 85, 105))], W, H)
+    draw_pin(d, p1[0], GREEN, "출발")
+    draw_pin(d, p2[0], GREEN, "출발")
+    draw_pin(d, p2[-1], RED, "도착")
+    draw_shop(d, ROUTES[1]["shop"], ROUTES[1]["shop_tag"])
+    img = Image.alpha_composite(img, layer)
+
+    head_h = 196
+    canvas = Image.new("RGBA", (W, H + head_h), NAVY + (255,))
+    canvas.paste(img, (0, head_h))
+    d = ImageDraw.Draw(canvas)
+    text_bold(d, (24, 18), "삼원가구 상차 경로 안내", 40, WHITE)
+    d.text((26, 76), "경로①  큰길 남쪽 방향 → 동교천 다리 건너기 직전 오른쪽 뚝방길 → 뚝방길 따라 서쪽 → 오른쪽 골목 → 도착 · 약 2분",
+           font=font(22), fill=(203, 213, 225))
+    d.text((26, 112), "경로②  큰길 북쪽 방향 → 동교천 다리 건너 바로 오른쪽 뚝방길 → 뚝방길 따라 동쪽 → 왼쪽 골목 → 도착 · 약 2분",
+           font=font(22), fill=(203, 213, 225))
+    lx, ly = 26, 164
+    for color, label in ((BIG_ROAD, "큰길"), (ROUTE, "뚝방길"), (ALLEY, "골목 (여기로 들어가야 함)")):
+        d.line([(lx, ly), (lx + 44, ly)], fill=WHITE, width=16)
+        d.line([(lx + 2, ly), (lx + 42, ly)], fill=color, width=10)
+        text_bold(d, (lx + 56, ly), label, 21, WHITE, anchor="lm")
+        lx += 56 + d.textlength(label, font=font(21)) + 36
+    canvas.convert("RGB").save(out_path, optimize=True)
+    print("saved", out_path, canvas.size)
+
+
 if __name__ == "__main__":
     for c in ROUTES:
         build(c)
+    build_combined()
