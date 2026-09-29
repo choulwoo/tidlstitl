@@ -13,6 +13,7 @@ from PIL import Image, ImageDraw, ImageFont
 FONT = "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc"
 ADDRESS = "경기도 포천시 송선로 150-34"
 JIBUN = "(지번) 설운동 190-1"
+SHOP_ADDRESS = "송선로 150-8"
 SCALE = 2
 
 GREEN = (22, 163, 74)
@@ -53,8 +54,8 @@ ROUTES = [
                         ("오른쪽 다리옆 하천변 길로 진입", 22, NAVY)],
         "tags": [((772, 572), "동교천 다리")],
         # 삼원가구 실제 위치(주소 지점)와 라벨 위치
-        "shop": (146, 175),
-        "shop_tag": (22, 196),
+        "shop": (117, 51),
+        "shop_tag": (140, 22),
     },
     {
         "src": "images/route2.webp",
@@ -82,8 +83,8 @@ ROUTES = [
         }],
         # 다리 위치 표시 (원본 좌표, 라벨 좌상단)
         "tags": [((110, 350), "동교천 다리")],
-        "shop": (378, 146),
-        "shop_tag": (262, 150),
+        "shop": (350, 25),
+        "shop_tag": (214, 30),
     },
 ]
 
@@ -242,14 +243,14 @@ def build(cfg):
     draw_callout(d, s, cfg["start_label_side"], GREEN,
                  cfg.get("start_lines", [("출발", 30, GREEN), ("여기서 진입하세요", 22, NAVY)]), W, H)
     draw_callout(d, e, cfg["end_label_side"], RED,
-                 [("도착 · 삼원가구 상차", 30, RED), (ADDRESS, 22, NAVY), (JIBUN, 18, (71, 85, 105))], W, H)
+                 [("도착 · 상차 장소", 30, RED), (ADDRESS, 22, NAVY), (JIBUN, 18, (71, 85, 105))], W, H)
     draw_pin(d, s, GREEN, "출발")
     draw_pin(d, e, RED, "도착")
 
-    # 삼원가구 실제 위치 (주소 지점)
+    # 삼원가구 매장 위치 (images/samwon_location.png 기준으로 맞춘 좌표)
     shop = (cfg["shop"][0] * SCALE, cfg["shop"][1] * SCALE)
     tag = (cfg["shop_tag"][0] * SCALE, cfg["shop_tag"][1] * SCALE)
-    lines = [("삼원가구 위치", 22, RED), ("송선로 150-34", 18, NAVY)]
+    lines = [("삼원가구", 22, RED), (SHOP_ADDRESS, 18, NAVY)]
     bw, bh = box_size(d, lines, pad=8)
     near = (min(max(shop[0], tag[0]), tag[0] + bw), min(max(shop[1], tag[1]), tag[1] + bh))
     d.line([shop, near], fill=WHITE, width=7)
